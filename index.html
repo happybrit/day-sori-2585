@@ -892,6 +892,8 @@
 <button id="music-btn" class="music-btn">🎵 موسیقی</button>
 <button id="theme-btn" class="theme-btn">🎨 تم</button>
 
+<script src="birthday-db-config.js"></script>
+<script src="birthday-storage.js"></script>
 <script>
 /* SafeStore */
 const SafeStore = {
@@ -999,7 +1001,10 @@ const Score = {
     return t;
   },
   reset() {
-    SafeStore.clearPrefix('bd_');
+    SafeStore.remove(this.TKEY);
+    SafeStore.remove(this.AKEY);
+    SafeStore.remove('bd_sudoku_solved');
+    SafeStore.clearPrefix('bd_best_'); // Keep birthday wishes and pending uploads.
     updateScoreUI();
     renderAchievements();
     renderGamesGrid();
@@ -1282,6 +1287,7 @@ function checkSudoku() {
     Score.add(25);
     const solved = parseInt(SafeStore.get('bd_sudoku_solved') || '0') + 1;
     SafeStore.set('bd_sudoku_solved', solved);
+    void BirthdayStorage.save('sudoku_result', String(solved), { game: 'sudoku', solved_count: solved });
     updateSudokuSolvedCount();
     showToast('سودوکو رو حل کردی! +۲۵ 🏆');
   }
@@ -1689,7 +1695,15 @@ function getWishes() {
 }
 function renderWishes() {
   const el = document.getElementById('wish-list');
-  el.innerHTML = getWishes().map(w => `<div class="wish">💫 ${w}</div>`).join('');
+  el.replaceChildren(); // Never insert user-submitted text as HTML.
+  const wishes = getWishes();
+  if (!Array.isArray(wishes)) return;
+  wishes.forEach(wish => {
+    const item = document.createElement('div');
+    item.className = 'wish';
+    item.textContent = '💫 ' + String(wish);
+    el.appendChild(item);
+  });
 }
 renderWishes();
 document.getElementById('add-wish-btn').addEventListener('click', () => {
@@ -1697,13 +1711,20 @@ document.getElementById('add-wish-btn').addEventListener('click', () => {
   if (!val) return;
   Sound.play('success');
   const w = getWishes();
-  w.push(val);
-  SafeStore.set(WISH_KEY, JSON.stringify(w));
+  const wishes = Array.isArray(w) ? w : [];
+  wishes.push(val);
+  SafeStore.set(WISH_KEY, JSON.stringify(wishes));
   inp.value = '';
   renderWishes();
   startConfetti(35);
   Score.add(2);
-  showToast('آرزوت ثبت شد 💖');
+  showToast(BirthdayStorage.configured
+    ? 'روی دستگاه ذخیره شد؛ در حال ارسال به پایگاه داده...'
+    : 'روی این دستگاه ذخیره شد؛ اتصال پایگاه داده هنوز فعال نیست.');
+  void BirthdayStorage.save('wish', val, { section: 'wish_jar' }).then(saved => {
+    if (saved) showToast('آرزوت توی پایگاه داده هم ثبت شد 💖');
+    else if (BirthdayStorage.configured) showToast('ارسال آنلاین انجام نشد؛ بعداً دوباره تلاش می‌کنیم.');
+  });
 });
 document.getElementById('wish-input').addEventListener('keypress', e => {
   if (e.key === 'Enter') document.getElementById('add-wish-btn').click();
@@ -1746,6 +1767,7 @@ const gmBody = document.getElementById('gm-body');
 const gmTitle = document.getElementById('gm-title');
 const gmScore = document.getElementById('gm-score');
 let currentGameScore = 0;
+let currentGameId = null;
 let activeGameCleanup = null;
 
 document.getElementById('gm-close').addEventListener('click', closeGame);
@@ -1753,6 +1775,7 @@ document.getElementById('gm-close').addEventListener('click', closeGame);
 function openGame(game) {
   Sound.play('click');
   gmTitle.textContent = game.name;
+  currentGameId = game.id;
   currentGameScore = 0;
   gmScore.textContent = 'امتیاز: 0';
   gmBody.innerHTML = '';
@@ -1762,6 +1785,10 @@ function openGame(game) {
   activeGameCleanup = game.init(gmBody) || null;
 }
 function closeGame() {
+  if (currentGameId && currentGameScore > 0) {
+    void BirthdayStorage.save('game_result', String(currentGameScore), { game: currentGameId });
+  }
+  currentGameId = null;
   gameModal.classList.remove('active');
   document.body.style.overflow = '';
   if (activeGameCleanup) { activeGameCleanup(); activeGameCleanup = null; }
@@ -2060,6 +2087,8 @@ function initQuiz(root) {
       b.className = 'quiz-opt'; b.textContent = opt;
       b.addEventListener('click', () => {
         if (lock) return; lock = true;
+        void BirthdayStorage.save('quiz_answer', opt,
+          { question: q.q, question_number: idx + 1, correct: i === q.a });
         if (i === q.a) {
           b.classList.add('correct'); score += 20; sE.textContent = 'امتیاز: ' + score;
           addGameScore(20); Sound.play('success');
@@ -2252,6 +2281,8 @@ function initMath(root) {
       b.className = 'math-opt'; b.textContent = o;
       b.addEventListener('click', () => {
         if (lock) return; lock = true;
+        void BirthdayStorage.save('math_answer', String(o),
+          { question: a + ' ' + op + ' ' + b, correct: o === ans });
         if (o === ans) {
           b.classList.add('correct'); correct++; cE.textContent = correct;
           addGameScore(10); Sound.play('success'); setTimeout(newQ, 500);
@@ -2326,6 +2357,8 @@ function initEmojiGuess(root) {
       b.className = 'emojig-opt'; b.textContent = o;
       b.addEventListener('click', () => {
         if (lock) return; lock = true;
+        void BirthdayStorage.save('emoji_answer', o,
+          { question: p.e, correct: o === p.ans });
         if (o === p.ans) {
           b.classList.add('correct'); score += 15; sE.textContent = score;
           addGameScore(15); startConfetti(25); Sound.play('success');
@@ -2371,6 +2404,8 @@ function initColorMatch(root) {
       b.className = 'cm-opt'; b.style.background = c.val;
       b.addEventListener('click', () => {
         if (lock) return; lock = true;
+        void BirthdayStorage.save('color_answer', c.name,
+          { question: correctColor.name, correct: c === correctColor });
         if (c === correctColor) {
           score += 10; sE.textContent = score;
           addGameScore(10); startConfetti(18); Sound.play('success');
