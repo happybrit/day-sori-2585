@@ -10,7 +10,7 @@
   const key = String(config.publishableKey || '').trim();
   const configured = /^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url) &&
     (/^sb_publishable_/i.test(key) || /^eyJ/.test(key));
-  const STORAGE_KEY = 'bd_pending_events_v1';
+  const STORAGE_KEY = 'sori_pending_events_v1';
   const TYPES = new Set(['wish', 'quiz_answer', 'emoji_answer', 'math_answer',
     'color_answer', 'game_result', 'sudoku_result']);
   let memoryQueue = [];
